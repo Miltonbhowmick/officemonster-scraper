@@ -796,7 +796,7 @@ class ScraperLogger:
 class WebTraffic:
     def __init__(self) -> None:
         self.browser_options = ChromeOptions()
-        self.browser_options.headless = False
+        self.browser_options.headless = True
         self.browser_options.add_argument("--log-level=1")
         self.service = Service(executable_path=CHROME_DRIVER_PATH)
         self.driver = None
@@ -861,6 +861,20 @@ class WebTraffic:
         else:
             print("There are less than 1 tabs!")
 
+    def single_frame_element_operation(self, element_no) -> None:
+        if self.wait_till_locator(
+            By.XPATH,
+            f"/html/body/div[3]/section[2]/div/div/div[2]/div[1]/div[2]/div/div[3]/div/form/div/div[5]/div/div[{element_no}]",
+        ):
+            print(f"{element_no} frame element is found!")
+            frame_element = self.driver.find_element(
+                By.XPATH,
+                f"/html/body/div[3]/section[2]/div/div/div[2]/div[1]/div[2]/div/div[3]/div/form/div/div[5]/div/div[{element_no}]",
+            )
+            frame_element.click()
+        else:
+            print(f"{element_no} frame element is not found!")
+
     def get_all_frame_color_elements(self) -> list:
         if self.wait_till_locator(
             By.XPATH,
@@ -877,6 +891,20 @@ class WebTraffic:
         else:
             print("All frame colored list of elements is not found!")
             return []
+
+    def single_color_element_operation(self, element_no) -> None:
+        if self.wait_till_locator(
+            By.XPATH,
+            f"/html/body/div[3]/section[2]/div/div/div[2]/div[1]/div[2]/div/div[3]/div/form/div/div[4]/div/div[{element_no}]",
+        ):
+            print(f"{element_no} color element is found!")
+            color_element = self.driver.find_element(
+                By.XPATH,
+                f"/html/body/div[3]/section[2]/div/div/div[2]/div[1]/div[2]/div/div[3]/div/form/div/div[4]/div/div[{element_no}]",
+            )
+            color_element.click()
+        else:
+            print(f"{element_no} color element is not found!")
 
     def get_all_color_elements(self) -> list:
         if self.wait_till_locator(
@@ -923,29 +951,30 @@ class WebTraffic:
             image_element = self.driver.find_element(By.XPATH, "/html/body/img")
             image_binary = image_element.screenshot_as_png
             img = Image.open(io.BytesIO(image_binary))
-            img.save("image.png")
+            image_path = "E:/project/BEM Group/officemonster-scraper/product-images"
+            img.save(f"{image_path}/image.png")
+            print("New image is saved!")
         else:
             print("Product image is not found!")
 
     def image_collection(self):
-        all_color_elements_list = self.get_all_color_elements()
-        for color_element in all_color_elements_list:
+        total_color_elements = len(self.get_all_color_elements())
+        total_frame_elements = len(self.get_all_frame_color_elements())
+
+        for element_idx in range(1, total_color_elements + 1):
             self.driver.implicitly_wait(10)
-            color_element.click()
+            self.single_color_element_operation(element_no=element_idx)
             time.sleep(3)
-            all_frame_elements_list = self.get_all_frame_color_elements()
-            time.sleep(3)
-            # for frame_element in all_frame_elements_list:
-            #     self.driver.implicitly_wait(10)
-            #     frame_element.click()
-            #     time.sleep(3)
-            self.mouseover_product_image()
-            time.sleep(3)
-            self.get_product_image()
-            time.sleep(1)
-            self.driver.close()
-            self.driver.switch_to.window(self.driver.window_handles[-1])
-            time.sleep(1)
+            for frame_idx in range(1, total_frame_elements + 1):
+                self.single_frame_element_operation(element_no=frame_idx)
+                time.sleep(3)
+                self.mouseover_product_image()
+                time.sleep(3)
+                self.get_product_image()
+                time.sleep(1)
+                self.driver.close()
+                self.driver.switch_to.window(self.driver.window_handles[-1])
+                time.sleep(1)
 
     def run(self) -> None:
         starttime = datetime.now()
