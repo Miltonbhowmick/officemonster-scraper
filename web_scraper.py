@@ -15,6 +15,7 @@ import threading
 import socket
 import io
 from PIL import Image
+from itertools import product
 
 SCRAPER_SETUP = 1
 
@@ -796,7 +797,7 @@ class ScraperLogger:
 class WebTraffic:
     def __init__(self) -> None:
         self.browser_options = ChromeOptions()
-        self.browser_options.headless = True
+        self.browser_options.headless = False
         self.browser_options.add_argument("--log-level=1")
         self.service = Service(executable_path=CHROME_DRIVER_PATH)
         self.driver = None
@@ -923,6 +924,10 @@ class WebTraffic:
             return []
 
     def mouseover_product_image(self):
+        """
+        A method whichs moves mouse pointer over the large image.
+        It will show the img tag with class name 'magnify'
+        """
         if self.wait_till_locator(
             By.XPATH, "/html/body/div[3]/section[2]/div/div/div[2]/div[1]/div[1]/div[1]"
         ):
@@ -937,6 +942,8 @@ class WebTraffic:
             print("Product image for mouseover is not found!")
 
     def get_product_image(self):
+        self.mouseover_product_image()
+        time.sleep(3)
         if self.wait_till_locator(By.CLASS_NAME, "magnify"):
             print("Product image is found!")
             product_image_element = self.driver.find_element(
@@ -957,7 +964,7 @@ class WebTraffic:
         else:
             print("Product image is not found!")
 
-    def image_collection(self):
+    def product_variation_collection(self):
         total_color_elements = len(self.get_all_color_elements())
         total_frame_elements = len(self.get_all_frame_color_elements())
 
@@ -968,22 +975,143 @@ class WebTraffic:
             for frame_idx in range(1, total_frame_elements + 1):
                 self.single_frame_element_operation(element_no=frame_idx)
                 time.sleep(3)
-                self.mouseover_product_image()
-                time.sleep(3)
                 self.get_product_image()
                 time.sleep(1)
                 self.driver.close()
                 self.driver.switch_to.window(self.driver.window_handles[-1])
                 time.sleep(1)
 
+    def navigate_single_variant(self, attribute_obj, element_no):
+        if self.wait_till_locator(By.CLASS_NAME, "product-options"):
+            print("Product options box is found for navigating signle variant!")
+            product_options_element = self.driver.find_element(
+                By.CLASS_NAME, "product-options"
+            )
+            option_group_elements = product_options_element.find_elements(
+                By.CLASS_NAME, "option-group"
+            )
+            # Iterating over all group of options
+            for group_element in option_group_elements:
+                attribute_name = group_element.find_element(By.TAG_NAME, "label").text
+                attribute_values_box = group_element.find_element(
+                    By.CLASS_NAME, "option-group-values"
+                )
+                if attribute_name == attribute_obj["attribute_name"]:
+                    print(f"Found the single navigation for {attribute_name}")
+                    if attribute_obj["attribute_type"] == "select":
+                        print("Its a select")
+                        select_element = attribute_values_box.find_element(
+                            By.TAG_NAME, "select"
+                        )
+                        select_element.click()
+                        self.driver.implicitly_wait(10)
+                        time.sleep(2)
+                        option_elements = select_element.find_elements(
+                            By.TAG_NAME, "option"
+                        )
+                        option_elements[element_no].click()
+                        return
+                    if attribute_obj["attribute_type"] == "button":
+                        print("Its a button")
+                        self.driver.implicitly_wait(10)
+                        button_elements = attribute_values_box.find_elements(
+                            By.CLASS_NAME, "option-group-swatch"
+                        )
+                        button_elements[element_no].click()
+                        return
+        else:
+            print("Product options box is not found for navigating signle variant!")
+
+    def product_attributes(self):
+        if self.wait_till_locator(By.CLASS_NAME, "product-options"):
+            print("Product options box is found!")
+            product_options_element = self.driver.find_element(
+                By.CLASS_NAME, "product-options"
+            )
+            option_group_elements = product_options_element.find_elements(
+                By.CLASS_NAME, "option-group"
+            )
+            data = []
+            attribute_index_data = []
+            # Iterating over all group of options
+            for group_element in option_group_elements:
+                attribute_name = group_element.find_element(By.TAG_NAME, "label").text
+                attribute_values_box = group_element.find_element(
+                    By.CLASS_NAME, "option-group-values"
+                )
+                obj = {
+                    "attribute_name": attribute_name,
+                }
+                if len(attribute_values_box.find_elements(By.TAG_NAME, "select")) > 0:
+                    select_element = attribute_values_box.find_element(
+                        By.TAG_NAME, "select"
+                    )
+                    select_element.click()
+                    self.driver.implicitly_wait(10)
+                    # Note: implicitly wait is used to recover the 'select' frame finding problem
+                    # Because 'select' tag is inside the frame of web and selenium does not find
+                    # all 'option' until click on select and make option list visible
+                    time.sleep(3)
+                    total_options = (
+                        len(select_element.find_elements(By.TAG_NAME, "option")) - 1
+                    )
+                    obj["attribute_length"] = total_options
+                    # obj["attribute_indexs"] = [i for i in range(1, total_options + 1)]
+                    attribute_index_data.append([i for i in range(0, total_options)])
+                    obj["attribute_type"] = "select"
+                if (
+                    len(
+                        attribute_values_box.find_elements(
+                            By.CLASS_NAME, "option-group-swatch"
+                        )
+                    )
+                    > 0
+                ):
+                    button_elements = attribute_values_box.find_elements(
+                        By.CLASS_NAME, "option-group-swatch"
+                    )
+                    total_buttons = len(button_elements)
+                    obj["attribute_length"] = total_buttons
+                    # obj["attribute_indexs"] = [i for i in range(1, total_buttons + 1)]
+                    attribute_index_data.append([i for i in range(0, total_buttons)])
+                    obj["attribute_type"] = "button"
+                data.append(obj)
+
+            print("Index List: ", attribute_index_data)
+            if len(data) > 0:
+                print(data, "+====================+")
+                print("Finding all variants")
+                combinations = product(*attribute_index_data)
+                totat_data = len(data)
+                for comb in combinations:
+                    print("Combination: ", comb)
+                    for idx, value in enumerate(comb):
+                        print(
+                            f"Go for attribute: {data[idx]['attribute_name']} and go for element no.: {value}"
+                        )
+                        self.driver.refresh()
+                        time.sleep(5)
+                        self.navigate_single_variant(
+                            attribute_obj=data[idx], element_no=value
+                        )
+            else:
+                print("There are no more variants!")
+        else:
+            print("Product options box is not found!")
+
+    def navigate_categories(self):
+        if self.wait_till_locator(By.CLASS_NAME, 'catalog'):
+
+
     def run(self) -> None:
         starttime = datetime.now()
 
         self.driver.get(
-            "https://www.officemonster.co.uk/corner-desks--1/maestro-25-cantilever-ergonomic-corner-desk"
+            "https://www.officemonster.co.uk/lockers--1/wooden-storage-lockers?selected=3062276"
         )
         time.sleep(5)
-        self.image_collection()
+        # self.product_variation_collection()
+        self.product_attributes()
 
         endtime = datetime.now()
         logging.info(f"Start time: {starttime}")
