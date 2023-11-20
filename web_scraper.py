@@ -16,6 +16,7 @@ import socket
 import io
 from PIL import Image
 from itertools import product
+from bs4 import BeautifulSoup
 
 SCRAPER_SETUP = 1
 
@@ -814,7 +815,7 @@ class WebTraffic:
         self.driver.maximize_window()
 
     def wait_till_locator(
-        self, by_what, by_value, load_time=180, soup_driver=None
+        self, by_what, by_value, load_time=120, soup_driver=None
     ) -> None:
         """
         A method which helps to check a specific web element of page
@@ -1099,9 +1100,142 @@ class WebTraffic:
         else:
             print("Product options box is not found!")
 
-    def navigate_categories(self):
-        if self.wait_till_locator(By.CLASS_NAME, 'catalog'):
+    def is_product_list_available(self) -> bool:
+        if self.wait_till_locator(
+            By.CLASS_NAME, "productgridfull"
+        ) or self.wait_till_locator(By.CLASS_NAME, "griditems"):
+            print("Product list is found!")
+            return True
+        else:
+            print("Product list is not found!")
+            return False
 
+    def go_next_pagination(self):
+        if self.wait_till_locator(By.CLASS_NAME, "pagination"):
+            print("Next pagination list found")
+            list_li = self.driver.find_element(
+                By.CLASS_NAME, "pagination"
+            ).find_elements(By.TAG_NAME, "li")
+            for element in list_li:
+                if element.get_attribute("class") == "next-page":
+                    element.click()
+                    return True
+            return False
+        else:
+            print("Next pagination list not found")
+            return False
+
+    def product_list_operation(self):
+        page_no = 1
+        while True:
+            print("Page no start: ", page_no)
+            group_to_product_list = []
+            try:
+                group_to_product_list = (
+                    self.driver.find_element(By.CLASS_NAME, "productgridfull")
+                    .find_element(By.CLASS_NAME, "container-fluid")
+                    .find_elements(By.TAG_NAME, "div")
+                )
+            except:
+                print("Product list with 'productgridfull' class name is not found!")
+
+            sub_categories_to_product_list = []
+            try:
+                sub_categories_to_product_list = self.driver.find_element(
+                    By.ID, "grid"
+                ).find_elements(By.CLASS_NAME, "tileparent")
+            except:
+                print("Product list with 'gridItems' class name is not found!")
+
+            if len(group_to_product_list) > 0:
+                print("We have grouped to product list")
+            elif len(sub_categories_to_product_list) > 0:
+                print(
+                    "We have direct subcategories to product list, total:",
+                    len(sub_categories_to_product_list),
+                )
+                product_soup = BeautifulSoup(
+                    self.driver.find_element(By.ID, "grid").get_attribute("innerHTML")
+                )
+                link_elements = product_soup.find_all("div", {"class": "tileparent"})
+                link_list = []
+                for element in link_elements:
+                    link_element = element.find("a")
+                    if link_element:
+                        link_list.append(link_element["href"])
+                print(link_list)
+            else:
+                print("Something went wrong. We are not in product list")
+
+            page_no += 1
+            if self.go_next_pagination() == False:
+                print("No more next page found!")
+                return
+
+    def group_sub_categories(self) -> bool:
+        if self.wait_till_locator(
+            By.XPATH,
+            "//*[@id='subcategorieslist_106894']/div/div[3]",
+        ):
+            print("Grouped sub categories are found!")
+            group_sub_categories = self.driver.find_element(
+                By.XPATH, "//*[@id='subcategorieslist_106894']/div/div[3]"
+            ).find_elements(By.TAG_NAME, "div")
+            for group_cat in group_sub_categories:
+                ActionChains(self.driver).key_down(Keys.CONTROL).click(
+                    group_cat
+                ).key_up(Keys.CONTROL).perform()
+                self.go_next_tab()
+                time.sleep(2)
+                self.product_list_operation()
+            return True
+        else:
+            print("Grouped sub categories are not found!")
+            print("Checking for products list")
+            self.product_list_operation()
+            return False
+
+    def navigate_sub_categories(self):
+        if self.wait_till_locator(By.CLASS_NAME, "cat-tiles"):
+            print("Sub categories are found!")
+            sub_categories = self.driver.find_element(
+                By.CLASS_NAME, "cat-tiles"
+            ).find_elements(By.TAG_NAME, "div")
+            for sub_cat in sub_categories:
+                ActionChains(self.driver).key_down(Keys.CONTROL).click(sub_cat).key_up(
+                    Keys.CONTROL
+                ).perform()
+                self.go_next_tab()
+                time.sleep(2)
+                if self.is_product_list_available() == False:
+                    print(
+                        "There are not product list boxes yet. Let's have a search for group of sub categories."
+                    )
+                    self.group_sub_categories()
+                else:
+                    print("There are already product list available")
+                    self.product_list_operation()
+                    self.driver.close()
+                    time.sleep(1)
+                    self.driver.switch_to.window(self.driver.window_handles[])
+        else:
+            print("Sub categories are not found!")
+
+    def navigate_categories(self):
+        if self.wait_till_locator(By.CLASS_NAME, "catalog"):
+            print("Main navbar of categories is found!")
+            category_list = self.driver.find_element(
+                By.CLASS_NAME, "catalog"
+            ).find_elements(By.TAG_NAME, "li")
+            for category in category_list:
+                if category.get_attribute("class") != "  has-submenu  ":
+                    print("This category has no sub menu")
+                    category.click()
+                    self.navigate_sub_categories()
+                else:
+                    print("This category has sub menu")
+        else:
+            print("Main navbar of categories is not found!")
 
     def run(self) -> None:
         starttime = datetime.now()
@@ -1111,7 +1245,8 @@ class WebTraffic:
         )
         time.sleep(5)
         # self.product_variation_collection()
-        self.product_attributes()
+        # self.product_attributes()
+        self.navigate_categories()
 
         endtime = datetime.now()
         logging.info(f"Start time: {starttime}")
