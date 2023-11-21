@@ -1103,7 +1103,7 @@ class WebTraffic:
     def is_product_list_available(self) -> bool:
         if self.wait_till_locator(
             By.CLASS_NAME, "productgridfull"
-        ) or self.wait_till_locator(By.CLASS_NAME, "griditems"):
+        ) or self.wait_till_locator(By.ID, "grid"):
             print("Product list is found!")
             return True
         else:
@@ -1134,7 +1134,7 @@ class WebTraffic:
                 group_to_product_list = (
                     self.driver.find_element(By.CLASS_NAME, "productgridfull")
                     .find_element(By.CLASS_NAME, "container-fluid")
-                    .find_elements(By.TAG_NAME, "div")
+                    .find_elements(By.CLASS_NAME, "product")
                 )
             except:
                 print("Product list with 'productgridfull' class name is not found!")
@@ -1149,6 +1149,25 @@ class WebTraffic:
 
             if len(group_to_product_list) > 0:
                 print("We have grouped to product list")
+                print(
+                    "We have grouped to product list, total:",
+                    len(group_to_product_list),
+                )
+                container_box_soup = BeautifulSoup(
+                    self.driver.find_element(By.CLASS_NAME, "productgridfull")
+                    .find_element(By.CLASS_NAME, "container-fluid")
+                    .get_attribute("innerHTML"),
+                    features="html.parser",
+                )
+                link_elements = container_box_soup.find_all("div", {"class": "product"})
+                link_list = []
+                for element in link_elements:
+                    link_element = element.find("div", {"class": "product-name"}).find(
+                        "a"
+                    )
+                    if link_element:
+                        link_list.append(link_element["href"])
+                print("Total Len: ", len(link_list))
             elif len(sub_categories_to_product_list) > 0:
                 print(
                     "We have direct subcategories to product list, total:",
@@ -1163,7 +1182,7 @@ class WebTraffic:
                     link_element = element.find("a")
                     if link_element:
                         link_list.append(link_element["href"])
-                print(link_list)
+                print("Total Len: ", len(link_list))
             else:
                 print("Something went wrong. We are not in product list")
 
@@ -1180,7 +1199,8 @@ class WebTraffic:
             print("Grouped sub categories are found!")
             group_sub_categories = self.driver.find_element(
                 By.XPATH, "//*[@id='subcategorieslist_106894']/div/div[3]"
-            ).find_elements(By.TAG_NAME, "div")
+            ).find_elements(By.CLASS_NAME, "tile")
+            print("Total grouped sub categories: ", len(group_sub_categories))
             for group_cat in group_sub_categories:
                 ActionChains(self.driver).key_down(Keys.CONTROL).click(
                     group_cat
@@ -1188,6 +1208,9 @@ class WebTraffic:
                 self.go_next_tab()
                 time.sleep(2)
                 self.product_list_operation()
+                self.driver.close()
+                time.sleep(1)
+                self.driver.switch_to.window(self.driver.window_handles[-1])
             return True
         else:
             print("Grouped sub categories are not found!")
@@ -1200,11 +1223,13 @@ class WebTraffic:
             print("Sub categories are found!")
             sub_categories = self.driver.find_element(
                 By.CLASS_NAME, "cat-tiles"
-            ).find_elements(By.TAG_NAME, "div")
-            for sub_cat in sub_categories:
-                ActionChains(self.driver).key_down(Keys.CONTROL).click(sub_cat).key_up(
-                    Keys.CONTROL
-                ).perform()
+            ).find_elements(By.CLASS_NAME, "tile")
+            ln = len(sub_categories)
+            print("Total sub categories: ", ln)
+            for i in range(0, ln):
+                ActionChains(self.driver).key_down(Keys.CONTROL).click(
+                    sub_categories[i]
+                ).key_up(Keys.CONTROL).perform()
                 self.go_next_tab()
                 time.sleep(2)
                 if self.is_product_list_available() == False:
@@ -1212,26 +1237,41 @@ class WebTraffic:
                         "There are not product list boxes yet. Let's have a search for group of sub categories."
                     )
                     self.group_sub_categories()
+                    self.driver.close()
+                    time.sleep(1)
+                    self.driver.switch_to.window(self.driver.window_handles[-1])
                 else:
                     print("There are already product list available")
                     self.product_list_operation()
                     self.driver.close()
                     time.sleep(1)
-                    self.driver.switch_to.window(self.driver.window_handles[])
+                    self.driver.switch_to.window(self.driver.window_handles[-1])
+                time.sleep(2)
         else:
             print("Sub categories are not found!")
 
     def navigate_categories(self):
-        if self.wait_till_locator(By.CLASS_NAME, "catalog"):
+        if self.wait_till_locator(By.CLASS_NAME, "catalog-block"):
             print("Main navbar of categories is found!")
-            category_list = self.driver.find_element(
-                By.CLASS_NAME, "catalog"
-            ).find_elements(By.TAG_NAME, "li")
-            for category in category_list:
+            category_list = self.driver.find_elements(
+                By.XPATH, "/html/body/header/div[1]/div[5]/div/div/nav/div/ul/li"
+            )
+            print("Total Category: ", len(category_list))
+            for category in category_list[6:]:
+                self.driver.implicitly_wait(10)
                 if category.get_attribute("class") != "  has-submenu  ":
                     print("This category has no sub menu")
-                    category.click()
+                    ActionChains(self.driver).key_down(Keys.CONTROL).click(
+                        category
+                    ).key_up(Keys.CONTROL).perform()
+                    time.sleep(1)
+                    self.go_next_tab()
+                    time.sleep(1)
                     self.navigate_sub_categories()
+                    time.sleep(2)
+                    self.driver.close()
+                    time.sleep(1)
+                    self.driver.switch_to.window(self.driver.window_handles[-1])
                 else:
                     print("This category has sub menu")
         else:
