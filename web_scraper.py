@@ -17,6 +17,7 @@ import io
 from PIL import Image
 from itertools import product
 from bs4 import BeautifulSoup
+import json
 
 SCRAPER_SETUP = 1
 
@@ -1023,6 +1024,50 @@ class WebTraffic:
         else:
             print("Product options box is not found for navigating signle variant!")
 
+    def get_product_summary(self):
+        if self.wait_till_locator(By.CLASS_NAME, "product-summary "):
+            print("Single product summary is found!")
+            summary_box = self.driver.find_element(By.CLASS_NAME, "product-summary ")
+            summary_soup = BeautifulSoup(
+                summary_box.get_attribute("innerHTML"), features="html.parser"
+            )
+
+            summary_data = {
+                "product_brand": summary_soup.find("div", {"class": "product-brand"})
+                .find("a")
+                .text.strip()
+                .replace("\n", ""),
+                "product_name": summary_soup.find("h1", {"class": "product-name"})
+                .text.strip()
+                .replace("\n", ""),
+            }
+            product_points = summary_soup.find("div", {"class": "product-points"})
+            summary_data["short_description"] = [
+                li.text.strip() for li in product_points.find_all("li")
+            ]
+            return summary_data
+        else:
+            print("Single product summary is not found!")
+            return None
+
+    def get_product_description(self):
+        if self.wait_till_locator(By.CLASS_NAME, "product-description"):
+            print("Single product description is found!")
+            description_element = self.driver.find_element(
+                By.CLASS_NAME, "product-description"
+            )
+            description_text = description_element.find_element(
+                By.TAG_NAME, "custom-html"
+            ).text
+            return description_text
+        else:
+            print("Single product description is not found!")
+            return None
+
+    def product_information(self):
+        self.get_product_summary()
+        self.get_product_description()
+
     def product_attributes(self):
         if self.wait_till_locator(By.CLASS_NAME, "product-options"):
             print("Product options box is found!")
@@ -1095,6 +1140,7 @@ class WebTraffic:
                         self.navigate_single_variant(
                             attribute_obj=data[idx], element_no=value
                         )
+                        self.product_information()
             else:
                 print("There are no more variants!")
         else:
@@ -1125,7 +1171,7 @@ class WebTraffic:
             print("Next pagination list not found")
             return False
 
-    def product_list_operation(self):
+    def product_list_operation(self, link_data) -> list:
         page_no = 1
         while True:
             print("Page no start: ", page_no)
@@ -1168,6 +1214,8 @@ class WebTraffic:
                     if link_element:
                         link_list.append(link_element["href"])
                 print("Total Len: ", len(link_list))
+                link_data = link_data + link_list
+                return link_data
             elif len(sub_categories_to_product_list) > 0:
                 print(
                     "We have direct subcategories to product list, total:",
@@ -1183,42 +1231,43 @@ class WebTraffic:
                     if link_element:
                         link_list.append(link_element["href"])
                 print("Total Len: ", len(link_list))
+                link_data = link_data + link_list
             else:
                 print("Something went wrong. We are not in product list")
 
             page_no += 1
+            return link_data
             if self.go_next_pagination() == False:
                 print("No more next page found!")
-                return
+                return link_data
 
-    def group_sub_categories(self) -> bool:
+    def group_sub_categories(self, link_data) -> list:
         if self.wait_till_locator(
-            By.XPATH,
-            "//*[@id='subcategorieslist_106894']/div/div[3]",
+            By.CLASS_NAME,
+            "cat-tiles",
         ):
             print("Grouped sub categories are found!")
-            group_sub_categories = self.driver.find_element(
-                By.XPATH, "//*[@id='subcategorieslist_106894']/div/div[3]"
+            group_sub_categories_list = self.driver.find_element(
+                By.CLASS_NAME, "cat-tiles"
             ).find_elements(By.CLASS_NAME, "tile")
-            print("Total grouped sub categories: ", len(group_sub_categories))
-            for group_cat in group_sub_categories:
+            print("Total grouped sub categories: ", len(group_sub_categories_list))
+            for group_cat in group_sub_categories_list[:1]:
                 ActionChains(self.driver).key_down(Keys.CONTROL).click(
                     group_cat
                 ).key_up(Keys.CONTROL).perform()
                 self.go_next_tab()
                 time.sleep(2)
-                self.product_list_operation()
+                link_data = self.product_list_operation(link_data)
                 self.driver.close()
                 time.sleep(1)
                 self.driver.switch_to.window(self.driver.window_handles[-1])
-            return True
+            return link_data
         else:
             print("Grouped sub categories are not found!")
             print("Checking for products list")
-            self.product_list_operation()
-            return False
+            return self.product_list_operation(link_data)
 
-    def navigate_sub_categories(self):
+    def navigate_sub_categories(self, link_data) -> list:
         if self.wait_till_locator(By.CLASS_NAME, "cat-tiles"):
             print("Sub categories are found!")
             sub_categories = self.driver.find_element(
@@ -1226,7 +1275,7 @@ class WebTraffic:
             ).find_elements(By.CLASS_NAME, "tile")
             ln = len(sub_categories)
             print("Total sub categories: ", ln)
-            for i in range(0, ln):
+            for i in range(0, 1):
                 ActionChains(self.driver).key_down(Keys.CONTROL).click(
                     sub_categories[i]
                 ).key_up(Keys.CONTROL).perform()
@@ -1236,28 +1285,29 @@ class WebTraffic:
                     print(
                         "There are not product list boxes yet. Let's have a search for group of sub categories."
                     )
-                    self.group_sub_categories()
+                    link_data = self.group_sub_categories(link_data)
                     self.driver.close()
                     time.sleep(1)
                     self.driver.switch_to.window(self.driver.window_handles[-1])
                 else:
                     print("There are already product list available")
-                    self.product_list_operation()
+                    link_data = self.product_list_operation(link_data)
                     self.driver.close()
                     time.sleep(1)
                     self.driver.switch_to.window(self.driver.window_handles[-1])
                 time.sleep(2)
+            return link_data
         else:
             print("Sub categories are not found!")
 
-    def navigate_categories(self):
+    def navigate_categories(self, link_data):
         if self.wait_till_locator(By.CLASS_NAME, "catalog-block"):
             print("Main navbar of categories is found!")
             category_list = self.driver.find_elements(
                 By.XPATH, "/html/body/header/div[1]/div[5]/div/div/nav/div/ul/li"
             )
             print("Total Category: ", len(category_list))
-            for category in category_list[6:]:
+            for category in category_list[:1]:
                 self.driver.implicitly_wait(10)
                 if category.get_attribute("class") != "  has-submenu  ":
                     print("This category has no sub menu")
@@ -1267,15 +1317,34 @@ class WebTraffic:
                     time.sleep(1)
                     self.go_next_tab()
                     time.sleep(1)
-                    self.navigate_sub_categories()
+                    link_data = self.navigate_sub_categories(link_data)
                     time.sleep(2)
                     self.driver.close()
                     time.sleep(1)
                     self.driver.switch_to.window(self.driver.window_handles[-1])
                 else:
                     print("This category has sub menu")
+            self.write_json_file("office_monster_product_links", link_data)
         else:
             print("Main navbar of categories is not found!")
+
+    def read_json_file(self, file_name) -> None:
+        data = []
+        with open(file_name, "r") as f:
+            data = json.load(f)
+        return data
+
+    def write_json_file(self, file_name, data) -> None:
+        with open(file_name, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+
+    def product_data_collection(self):
+        link_data = self.read_json_file("office_monster_product_links")
+        for link in link_data[:1]:
+            self.driver.get(link)
+            time.sleep(5)
+            # self.product_attributes()
+            self.product_information()
 
     def run(self) -> None:
         starttime = datetime.now()
@@ -1284,10 +1353,11 @@ class WebTraffic:
             "https://www.officemonster.co.uk/lockers--1/wooden-storage-lockers?selected=3062276"
         )
         time.sleep(5)
-        # self.product_variation_collection()
-        # self.product_attributes()
-        self.navigate_categories()
-
+        link_data = []
+        # Navigate each product detail page and get all data
+        self.product_data_collection()
+        # For collecting product detail page link
+        # self.navigate_categories(link_data)
         endtime = datetime.now()
         logging.info(f"Start time: {starttime}")
         logging.info(f"End time: {endtime}")
