@@ -19,6 +19,8 @@ from itertools import product
 from bs4 import BeautifulSoup
 import json
 import string
+import pandas as pd
+import copy
 
 SCRAPER_SETUP = 1
 
@@ -1141,7 +1143,7 @@ class WebTraffic:
         product_data["tax_status"] = "taxable"
         product_data["stock"] = random.randrange(200, 300)
 
-        print(product_data)
+        return product_data
 
     def product_attributes_list(self):
         if self.wait_till_locator(By.CLASS_NAME, "product-options"):
@@ -1223,7 +1225,7 @@ class WebTraffic:
                 product_variants = []
                 for comb in combinations:
                     print("Combination: ", comb)
-                    variant_objects = []
+                    comb_options = []
                     for idx, value in enumerate(comb):
                         print(
                             f"Go for attribute: {data[idx]['attribute_name']} and go for element no.: {value}"
@@ -1234,19 +1236,22 @@ class WebTraffic:
                             attribute_obj=data[idx], element_no=value
                         )
                         time.sleep(2)
-                        product_price = self.get_product_price()
-                        product_all_image_url = self.get_product_all_image_url()
-                        time.sleep(2)
-                        variant_objects.append(
+                        comb_options.append(
                             {
-                                "attribute_name": data[idx]["attribute_name"],
-                                "attribute_value": data[idx]["attribute_values"][value],
-                                **product_price,
-                                **product_all_image_url,
+                                "name": data[idx]["attribute_name"],
+                                "value": data[idx]["attribute_values"][value],
                             }
                         )
-                    product_variants.append(variant_objects)
-                return product_variants
+                    product_price = self.get_product_price()
+                    product_all_image_url = self.get_product_all_image_url()
+                    product_variants.append(
+                        {
+                            "attributes": comb_options,
+                            **product_price,
+                            **product_all_image_url,
+                        }
+                    )
+                return {"options": data, "product_variants": product_variants}
             else:
                 print("There are no more variants!")
                 return None
@@ -1446,13 +1451,137 @@ class WebTraffic:
         with open(file_name, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
 
+    def get_categories_csv_format(self, categories_serial):
+        if len(categories_serial) == 0:
+            return ""
+        value = categories_serial[0]
+        for i in range(1, len(categories_serial)):
+            value += ">" + categories_serial[i]
+        return value
+
+    def get_list_comma_separate_format(self, image_list):
+        if len(image_list) == 0:
+            return ""
+        value = image_list[0]
+        for i in range(1, len(image_list)):
+            value += ", " + image_list[i]
+        return value
+
+    def get_parent_row_csv_format(self, data, attribute_list):
+        parent_row = {
+            "ID": data["id"],
+            "Type": "variable",
+            "SKU": data["product_code"],
+            "Name": data["product_name"],
+            "Visibility in catalog": "visible",
+            "Short description": data["short_description"],
+            "Description": data["description"],
+            "Tax status": "taxable",
+            "Tax class": "",
+            "Stock": data["stock"],
+            "Regular price": "",
+            "Categories": self.get_categories_csv_format(data["categories_serial"]),
+            "Tags": data["product_brand"],
+            "Images": self.get_list_comma_separate_format(data["image_list"]),
+            "Parent": "",
+        }
+        ln = len(attribute_list)
+        for i in range(0, ln):
+            parent_row[f"Attribute {i+1} name"] = attribute_list[i]["attribute_name"]
+            parent_row[
+                f"Attribute {i+1} value(s)"
+            ] = self.get_list_comma_separate_format(
+                attribute_list[i]["attribute_values"]
+            )
+
+        return parent_row
+
+    def get_variant_row_csv_format(self, parent_row, variant_data):
+        main_parent_row = copy.deepcopy(parent_row)
+
+        main_parent_row["Regular price"] = variant_data["price"]
+        main_parent_row["Images"] = variant_data["image_list"]
+
+        option_list = variant_data["attributes"]
+        for i in range(0, len(option_list)):
+            main_parent_row[f"Attribute {i+1} name"] = option_list[i]["name"]
+            main_parent_row[f"Attribute {i+1} value(s)"] = option_list[i]["value"]
+
+        main_parent_row["Type"] = "variation"
+        main_parent_row["Tax class"] = "parent"
+        main_parent_row["Short description"] = ""
+        main_parent_row["Description"] = ""
+        main_parent_row["Tax status"] = ""
+        main_parent_row["Stock"] = ""
+        main_parent_row["Categories"] = ""
+        main_parent_row["Parent"] = parent_row["SKU"]
+
+        return main_parent_row
+
     def product_data_collection(self):
         link_data = self.read_json_file("office_monster_product_links")
-        for link in link_data[:5]:
+        core_df = pd.DataFrame(
+            columns=[
+                "ID",
+                "Type",
+                "SKU",
+                "Name",
+                "Visibility in catalog",
+                "Short description",
+                "Description",
+                "Tax status",
+                "Tax class",
+                "Stock",
+                "Regular price",
+                "Categories",
+                "Tags",
+                "Images",
+                "Parent",
+                "Attribute 1 name",
+                "Attribute 1 value(s)",
+                "Attribute 2 name",
+                "Attribute 2 value(s)",
+                "Attribute 3 name",
+                "Attribute 3 value(s)",
+                "Attribute 4 name",
+                "Attribute 4 value(s)",
+                "Attribute 5 name",
+                "Attribute 5 value(s)",
+                "Attribute 6 name",
+                "Attribute 6 value(s)",
+                "Attribute 7 name",
+                "Attribute 7 value(s)",
+                "Attribute 8 name",
+                "Attribute 8 value(s)",
+            ]
+        )
+
+        id_number = 1
+        index_no = 0
+        for link in link_data[:1]:
             self.driver.get(link)
             time.sleep(5)
             parent_data = self.product_information()
             variant_data = self.product_attributes()
+
+            parent_data["id"] = id_number
+            id_number += 1
+            parent_row = self.get_parent_row_csv_format(
+                data=parent_data, attribute_list=variant_data["options"]
+            )
+            core_df.loc[index_no] = parent_row
+            index_no += 1
+            if variant_data:
+                product_variants = variant_data["product_variants"]
+                for variant in product_variants:
+                    variant_row = self.get_variant_row_csv_format(
+                        parent_row=parent_row, variant_data=variant
+                    )
+                    variant_row["Id"] = id_number
+                    id_number += 1
+                    core_df.loc[index_no] = variant_row
+                    index_no += 1
+        print(core_df)
 
     def run(self) -> None:
         starttime = datetime.now()
