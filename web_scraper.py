@@ -18,6 +18,7 @@ from PIL import Image
 from itertools import product
 from bs4 import BeautifulSoup
 import json
+import string
 
 SCRAPER_SETUP = 1
 
@@ -1045,6 +1046,13 @@ class WebTraffic:
             summary_data["short_description"] = [
                 li.text.strip() for li in product_points.find_all("li")
             ]
+
+            product_code = summary_soup.find("span", {"class": "product-sku"})
+            if product_code == None:
+                product_code = "".join(
+                    random.choices(string.ascii_uppercase + string.digits, k=6)
+                )
+            summary_data["product_code"] = product_code
             return summary_data
         else:
             print("Single product summary is not found!")
@@ -1059,14 +1067,87 @@ class WebTraffic:
             description_text = description_element.find_element(
                 By.TAG_NAME, "custom-html"
             ).text
-            return description_text
+            return {"description": description_text}
         else:
             print("Single product description is not found!")
             return None
 
+    def get_product_price(self):
+        if self.wait_till_locator(By.CLASS_NAME, "filter-container"):
+            print("Single product price, quantity filter box are found!")
+            filter_container = self.driver.find_element(
+                By.CLASS_NAME, "filter-container"
+            )
+            price_element = filter_container.find_element(By.CLASS_NAME, "price ")
+            return {"price": price_element.text}
+        else:
+            print("Single product price, quantity filter box are not found!")
+            return None
+
+    def get_product_category_serial(self):
+        if self.wait_till_locator(By.CLASS_NAME, "row-breadcrumb"):
+            print("Single product category link serial is found!")
+            link_elements = self.driver.find_element(
+                By.CLASS_NAME, "row-breadcrumb"
+            ).find_elements(By.TAG_NAME, "a")
+            category_list = []
+            for element in link_elements:
+                link = element.get_attribute("href")
+                if TARGET_WEBSITE_URL in link and len(link) > len(TARGET_WEBSITE_URL):
+                    if len(element.text) > 0:
+                        category_list.append(element.text)
+            return {"categories_serial": category_list}
+        else:
+            print("Single product category link serial is not found!")
+            return None
+
+    def get_product_all_image_url(self):
+        if self.wait_till_locator(By.CLASS_NAME, "productimage_container"):
+            print("Single product images box is found!")
+            images_box = self.driver.find_element(
+                By.CLASS_NAME, "productimage_container"
+            )
+            image_soup = BeautifulSoup(
+                images_box.get_attribute("innerHTML"), features="html.parser"
+            )
+
+            image_elements = image_soup.find_all("img", {"class": "ms-thumb"})
+            if len(image_elements) > 0:
+                image_link_list = []
+                for element in image_elements:
+                    image_link_list.append(element["src"])
+                return {"image_list": image_link_list}
+            else:
+                main_image = image_soup.find("div", {"class": "main-image"}).find("img")
+                return {"image_list": [main_image["src"]]}
+        else:
+            print("Single product images box is not found!")
+            return None
+
     def product_information(self):
-        self.get_product_summary()
-        self.get_product_description()
+        product_summary = self.get_product_summary()
+        product_description = self.get_product_description()
+        product_price = self.get_product_price()
+        product_category_serial = self.get_product_category_serial()
+        product_all_image_url = self.get_product_all_image_url()
+        product_data = {
+            **product_summary,
+            **product_price,
+            **product_description,
+            **product_category_serial,
+            **product_all_image_url,
+        }
+        product_data["visibility_in_catalog"] = "visible"
+        product_data["tax_status"] = "taxable"
+        product_data["stock"] = random.randrange(200, 300)
+
+        print(product_data)
+
+    def product_attributes_list(self):
+        if self.wait_till_locator(By.CLASS_NAME, "product-options"):
+            print("Product options list box is found!")
+        else:
+            print("Product options list box is not found!")
 
     def product_attributes(self):
         if self.wait_till_locator(By.CLASS_NAME, "product-options"):
@@ -1098,11 +1179,14 @@ class WebTraffic:
                     # Because 'select' tag is inside the frame of web and selenium does not find
                     # all 'option' until click on select and make option list visible
                     time.sleep(3)
-                    total_options = (
-                        len(select_element.find_elements(By.TAG_NAME, "option")) - 1
-                    )
+                    all_options = select_element.find_elements(By.TAG_NAME, "option")
+                    total_options = len(all_options) - 1
+                    attribute_values = []
+                    for option in all_options:
+                        if option.text != "Select an option":
+                            attribute_values.append(option.text)
+                    obj["attribute_values"] = attribute_values
                     obj["attribute_length"] = total_options
-                    # obj["attribute_indexs"] = [i for i in range(1, total_options + 1)]
                     attribute_index_data.append([i for i in range(0, total_options)])
                     obj["attribute_type"] = "select"
                 if (
@@ -1117,20 +1201,29 @@ class WebTraffic:
                         By.CLASS_NAME, "option-group-swatch"
                     )
                     total_buttons = len(button_elements)
+                    attribute_values = []
+
+                    for button in button_elements:
+                        label_element = button.find_element(
+                            By.CLASS_NAME, "label-radio"
+                        )
+                        # print("------", label_element.get_attribute("innerHTML"))
+                        attribute_values.append(label_element.text)
+                    obj["attribute_values"] = attribute_values
                     obj["attribute_length"] = total_buttons
-                    # obj["attribute_indexs"] = [i for i in range(1, total_buttons + 1)]
                     attribute_index_data.append([i for i in range(0, total_buttons)])
                     obj["attribute_type"] = "button"
                 data.append(obj)
 
-            print("Index List: ", attribute_index_data)
+            print("Data options: ", data)
+            print("Options indexes List: ", attribute_index_data)
             if len(data) > 0:
-                print(data, "+====================+")
                 print("Finding all variants")
                 combinations = product(*attribute_index_data)
-                totat_data = len(data)
+                product_variants = []
                 for comb in combinations:
                     print("Combination: ", comb)
+                    variant_objects = []
                     for idx, value in enumerate(comb):
                         print(
                             f"Go for attribute: {data[idx]['attribute_name']} and go for element no.: {value}"
@@ -1140,11 +1233,26 @@ class WebTraffic:
                         self.navigate_single_variant(
                             attribute_obj=data[idx], element_no=value
                         )
-                        self.product_information()
+                        time.sleep(2)
+                        product_price = self.get_product_price()
+                        product_all_image_url = self.get_product_all_image_url()
+                        time.sleep(2)
+                        variant_objects.append(
+                            {
+                                "attribute_name": data[idx]["attribute_name"],
+                                "attribute_value": data[idx]["attribute_values"][value],
+                                **product_price,
+                                **product_all_image_url,
+                            }
+                        )
+                    product_variants.append(variant_objects)
+                return product_variants
             else:
                 print("There are no more variants!")
+                return None
         else:
             print("Product options box is not found!")
+            return None
 
     def is_product_list_available(self) -> bool:
         if self.wait_till_locator(
@@ -1340,11 +1448,11 @@ class WebTraffic:
 
     def product_data_collection(self):
         link_data = self.read_json_file("office_monster_product_links")
-        for link in link_data[:1]:
+        for link in link_data[:5]:
             self.driver.get(link)
             time.sleep(5)
-            # self.product_attributes()
-            self.product_information()
+            parent_data = self.product_information()
+            variant_data = self.product_attributes()
 
     def run(self) -> None:
         starttime = datetime.now()
