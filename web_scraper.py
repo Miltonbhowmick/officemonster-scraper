@@ -1054,6 +1054,8 @@ class WebTraffic:
                 product_code = "".join(
                     random.choices(string.ascii_uppercase + string.digits, k=6)
                 )
+            else:
+                product_code = product_code.text.split(":")[1]
             summary_data["product_code"] = product_code
             return summary_data
         else:
@@ -1467,14 +1469,16 @@ class WebTraffic:
             value += ", " + image_list[i]
         return value
 
-    def get_parent_row_csv_format(self, data, attribute_list):
+    def get_parent_row_csv_format(self, data, variant_data):
         parent_row = {
             "ID": data["id"],
             "Type": "variable",
             "SKU": data["product_code"],
             "Name": data["product_name"],
             "Visibility in catalog": "visible",
-            "Short description": data["short_description"],
+            "Short description": self.get_list_comma_separate_format(
+                data["short_description"]
+            ),
             "Description": data["description"],
             "Tax status": "taxable",
             "Tax class": "",
@@ -1485,14 +1489,18 @@ class WebTraffic:
             "Images": self.get_list_comma_separate_format(data["image_list"]),
             "Parent": "",
         }
-        ln = len(attribute_list)
-        for i in range(0, ln):
-            parent_row[f"Attribute {i+1} name"] = attribute_list[i]["attribute_name"]
-            parent_row[
-                f"Attribute {i+1} value(s)"
-            ] = self.get_list_comma_separate_format(
-                attribute_list[i]["attribute_values"]
-            )
+        if variant_data:
+            attribute_list = variant_data["options"]
+            ln = len(attribute_list)
+            for i in range(0, ln):
+                parent_row[f"Attribute {i+1} name"] = attribute_list[i][
+                    "attribute_name"
+                ]
+                parent_row[
+                    f"Attribute {i+1} value(s)"
+                ] = self.get_list_comma_separate_format(
+                    attribute_list[i]["attribute_values"]
+                )
 
         return parent_row
 
@@ -1507,6 +1515,7 @@ class WebTraffic:
             main_parent_row[f"Attribute {i+1} name"] = option_list[i]["name"]
             main_parent_row[f"Attribute {i+1} value(s)"] = option_list[i]["value"]
 
+        main_parent_row["SKU"] = ""
         main_parent_row["Type"] = "variation"
         main_parent_row["Tax class"] = "parent"
         main_parent_row["Short description"] = ""
@@ -1567,7 +1576,7 @@ class WebTraffic:
             parent_data["id"] = id_number
             id_number += 1
             parent_row = self.get_parent_row_csv_format(
-                data=parent_data, attribute_list=variant_data["options"]
+                data=parent_data, variant_data=variant_data
             )
             core_df.loc[index_no] = parent_row
             index_no += 1
@@ -1581,7 +1590,8 @@ class WebTraffic:
                     id_number += 1
                     core_df.loc[index_no] = variant_row
                     index_no += 1
-        print(core_df)
+        # print(core_df)
+        core_df.to_csv("office_monster_data.csv", index=False)
 
     def run(self) -> None:
         starttime = datetime.now()
