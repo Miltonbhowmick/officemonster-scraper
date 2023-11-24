@@ -1035,19 +1035,35 @@ class WebTraffic:
                 summary_box.get_attribute("innerHTML"), features="html.parser"
             )
 
+            product_brand = summary_soup.find("div", {"class": "product-brand"}).find(
+                "a"
+            )
+            if product_brand:
+                product_brand = product_brand.text.strip().replace("\n", "")
+            else:
+                product_brand = ""
+
+            product_name = summary_soup.find("h1", {"class": "product-name"})
+            if product_name:
+                product_name = product_name.text.strip().replace("\n", "")
+            else:
+                product_name = ""
+
+            manufacturer = summary_soup.find(
+                "div", {"class": "manufacturer-name"}
+            ).find("span", text=True, recursive=False)
+            if manufacturer:
+                manufacturer = manufacturer.text.strip().replace("\n", "")
+            else:
+                manufacturer = ""
+
             summary_data = {
-                "product_brand": summary_soup.find("div", {"class": "product-brand"})
-                .find("a")
-                .text.strip()
-                .replace("\n", ""),
-                "product_name": summary_soup.find("h1", {"class": "product-name"})
-                .text.strip()
-                .replace("\n", ""),
+                "product_brand": product_brand,
+                "product_name": product_name,
+                "manufacturer": manufacturer,
             }
             product_points = summary_soup.find("div", {"class": "product-points"})
-            summary_data["short_description"] = [
-                li.text.strip() for li in product_points.find_all("li")
-            ]
+            summary_data["short_description"] = product_points.find("ul")
 
             product_code = summary_soup.find("span", {"class": "product-sku"})
             if product_code == None:
@@ -1083,7 +1099,22 @@ class WebTraffic:
                 By.CLASS_NAME, "filter-container"
             )
             price_element = filter_container.find_element(By.CLASS_NAME, "price ")
-            return {"price": price_element.text}
+            regular_price_value = float(
+                price_element.text.strip().replace("\n", "").split("£")[1]
+            )
+
+            vat_price_element = filter_container.find_element(
+                By.CLASS_NAME, "has-vat-price"
+            )
+
+            if vat_price_element == None:
+                vat_price_element = regular_price_value + 20
+            else:
+                vat_price_element = (
+                    vat_price_element.text.strip().replace("\n", "").split("£")[1]
+                )
+
+            return {"price": regular_price_value, "vat_price": float(vat_price_element)}
         else:
             print("Single product price, quantity filter box are not found!")
             return None
@@ -1458,34 +1489,37 @@ class WebTraffic:
             return ""
         value = categories_serial[0]
         for i in range(1, len(categories_serial)):
-            value += ">" + categories_serial[i]
+            value += " > " + categories_serial[i]
         return value
 
-    def get_list_comma_separate_format(self, image_list):
-        if len(image_list) == 0:
+    def get_list_comma_separate_format(self, value_list):
+        length = len(value_list)
+        if length == 0:
             return ""
-        value = image_list[0]
-        for i in range(1, len(image_list)):
-            value += ", " + image_list[i]
+        value = value_list[0]
+        for i in range(1, length):
+            if len(value_list[i]) > 0:
+                value += ", " + value_list[i]
         return value
 
     def get_parent_row_csv_format(self, data, variant_data):
+        print("============", [data["product_brand"], data["manufacturer"]])
         parent_row = {
             "ID": data["id"],
             "Type": "variable",
             "SKU": data["product_code"],
             "Name": data["product_name"],
             "Visibility in catalog": "visible",
-            "Short description": self.get_list_comma_separate_format(
-                data["short_description"]
-            ),
+            "Short description": data["short_description"],
             "Description": data["description"],
             "Tax status": "taxable",
             "Tax class": "",
             "Stock": data["stock"],
             "Regular price": "",
             "Categories": self.get_categories_csv_format(data["categories_serial"]),
-            "Tags": data["product_brand"],
+            "Tags": self.get_list_comma_separate_format(
+                [data["product_brand"], data["manufacturer"]]
+            ),
             "Images": self.get_list_comma_separate_format(data["image_list"]),
             "Parent": "",
         }
@@ -1507,8 +1541,10 @@ class WebTraffic:
     def get_variant_row_csv_format(self, parent_row, variant_data):
         main_parent_row = copy.deepcopy(parent_row)
 
-        main_parent_row["Regular price"] = variant_data["price"]
-        main_parent_row["Images"] = variant_data["image_list"]
+        main_parent_row["Regular price"] = variant_data["vat_price"]
+        main_parent_row["Images"] = self.get_list_comma_separate_format(
+            variant_data["image_list"]
+        )
 
         option_list = variant_data["attributes"]
         for i in range(0, len(option_list)):
@@ -1567,7 +1603,7 @@ class WebTraffic:
 
         id_number = 1
         index_no = 0
-        for link in link_data[:1]:
+        for link in link_data[:3]:
             self.driver.get(link)
             time.sleep(5)
             parent_data = self.product_information()
@@ -1586,7 +1622,7 @@ class WebTraffic:
                     variant_row = self.get_variant_row_csv_format(
                         parent_row=parent_row, variant_data=variant
                     )
-                    variant_row["Id"] = id_number
+                    variant_row["ID"] = id_number
                     id_number += 1
                     core_df.loc[index_no] = variant_row
                     index_no += 1
@@ -1596,9 +1632,9 @@ class WebTraffic:
     def run(self) -> None:
         starttime = datetime.now()
 
-        self.driver.get(
-            "https://www.officemonster.co.uk/lockers--1/wooden-storage-lockers?selected=3062276"
-        )
+        # self.driver.get(
+        #     "https://www.officemonster.co.uk/lockers--1/wooden-storage-lockers?selected=3062276"
+        # )
         time.sleep(5)
         link_data = []
         # Navigate each product detail page and get all data
