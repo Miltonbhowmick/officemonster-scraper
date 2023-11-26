@@ -1051,7 +1051,7 @@ class WebTraffic:
 
             manufacturer = summary_soup.find(
                 "div", {"class": "manufacturer-name"}
-            ).find("span", text=True, recursive=False)
+            ).find("span", string=True, recursive=False)
             if manufacturer:
                 manufacturer = manufacturer.text.strip().replace("\n", "")
             else:
@@ -1160,18 +1160,33 @@ class WebTraffic:
             return None
 
     def product_information(self):
+        product_data = {}
         product_summary = self.get_product_summary()
         product_description = self.get_product_description()
         product_price = self.get_product_price()
         product_category_serial = self.get_product_category_serial()
         product_all_image_url = self.get_product_all_image_url()
-        product_data = {
-            **product_summary,
-            **product_price,
-            **product_description,
-            **product_category_serial,
-            **product_all_image_url,
-        }
+        if product_summary:
+            product_data = {**product_data, **product_summary}
+        else:
+            return None
+
+        if product_description:
+            product_data = {**product_data, **product_description}
+        if product_price:
+            product_data = {**product_data, **product_price}
+        if product_category_serial:
+            product_data = {**product_data, **product_category_serial}
+        if product_all_image_url:
+            product_data = {**product_data, **product_all_image_url}
+
+        # product_data = {
+        #     **product_summary,
+        #     **product_price,
+        #     **product_description,
+        #     **product_category_serial,
+        #     **product_all_image_url,
+        # }
         product_data["visibility_in_catalog"] = "visible"
         product_data["tax_status"] = "taxable"
         product_data["stock"] = random.randrange(200, 300)
@@ -1397,7 +1412,7 @@ class WebTraffic:
                 By.CLASS_NAME, "cat-tiles"
             ).find_elements(By.CLASS_NAME, "tile")
             print("Total grouped sub categories: ", len(group_sub_categories_list))
-            for group_cat in group_sub_categories_list[:1]:
+            for group_cat in group_sub_categories_list:
                 ActionChains(self.driver).key_down(Keys.CONTROL).click(
                     group_cat
                 ).key_up(Keys.CONTROL).perform()
@@ -1421,7 +1436,7 @@ class WebTraffic:
             ).find_elements(By.CLASS_NAME, "tile")
             ln = len(sub_categories)
             print("Total sub categories: ", ln)
-            for i in range(0, 1):
+            for i in range(0, ln):
                 ActionChains(self.driver).key_down(Keys.CONTROL).click(
                     sub_categories[i]
                 ).key_up(Keys.CONTROL).perform()
@@ -1446,39 +1461,45 @@ class WebTraffic:
         else:
             print("Sub categories are not found!")
 
-    def navigate_categories(self, link_data):
+    def navigate_categories(self, category_no, link_data):
         if self.wait_till_locator(By.CLASS_NAME, "catalog-block"):
             print("Main navbar of categories is found!")
             category_list = self.driver.find_elements(
                 By.XPATH, "/html/body/header/div[1]/div[5]/div/div/nav/div/ul/li"
             )
             print("Total Category: ", len(category_list))
-            for category in category_list[:1]:
-                self.driver.implicitly_wait(10)
-                if category.get_attribute("class") != "  has-submenu  ":
-                    print("This category has no sub menu")
-                    ActionChains(self.driver).key_down(Keys.CONTROL).click(
-                        category
-                    ).key_up(Keys.CONTROL).perform()
-                    time.sleep(1)
-                    self.go_next_tab()
-                    time.sleep(1)
-                    link_data = self.navigate_sub_categories(link_data)
-                    time.sleep(2)
-                    self.driver.close()
-                    time.sleep(1)
-                    self.driver.switch_to.window(self.driver.window_handles[-1])
-                else:
-                    print("This category has sub menu")
-            self.write_json_file("office_monster_product_links", link_data)
+            category = category_list[category_no]
+            # for category in category_list:
+            self.driver.implicitly_wait(10)
+            if category.get_attribute("class") != "  has-submenu  ":
+                print("This category has no sub menu")
+                ActionChains(self.driver).key_down(Keys.CONTROL).click(category).key_up(
+                    Keys.CONTROL
+                ).perform()
+                time.sleep(1)
+                self.go_next_tab()
+                time.sleep(1)
+                link_data = self.navigate_sub_categories(link_data)
+                time.sleep(2)
+                self.driver.close()
+                time.sleep(1)
+                self.driver.switch_to.window(self.driver.window_handles[-1])
+            else:
+                print("This category has sub menu")
+            self.write_json_file(
+                f"office_monster_product_links{category_no}", link_data
+            )
         else:
             print("Main navbar of categories is not found!")
 
     def read_json_file(self, file_name) -> None:
         data = []
-        with open(file_name, "r") as f:
-            data = json.load(f)
-        return data
+        try:
+            with open(file_name, "r") as f:
+                data = json.load(f)
+            return data
+        except:
+            print(f"{file_name} file is not found!")
 
     def write_json_file(self, file_name, data) -> None:
         with open(file_name, "w", encoding="utf-8") as f:
@@ -1503,7 +1524,9 @@ class WebTraffic:
         return value
 
     def get_parent_row_csv_format(self, data, variant_data):
-        print("============", [data["product_brand"], data["manufacturer"]])
+        tags = self.get_list_comma_separate_format(
+            [data.get("product_brand", ""), data.get("manufacturer", "")]
+        )
         parent_row = {
             "ID": data["id"],
             "Type": "variable",
@@ -1517,9 +1540,7 @@ class WebTraffic:
             "Stock": data["stock"],
             "Regular price": "",
             "Categories": self.get_categories_csv_format(data["categories_serial"]),
-            "Tags": self.get_list_comma_separate_format(
-                [data["product_brand"], data["manufacturer"]]
-            ),
+            "Tags": tags,
             "Images": self.get_list_comma_separate_format(data["image_list"]),
             "Parent": "",
         }
@@ -1563,8 +1584,10 @@ class WebTraffic:
 
         return main_parent_row
 
-    def product_data_collection(self):
-        link_data = self.read_json_file("office_monster_product_links")
+    def product_data_collection(self, category_no) -> None:
+        link_data = self.read_json_file(f"office_monster_product_links_{category_no}")
+        if link_data == None:
+            return
         core_df = pd.DataFrame(
             columns=[
                 "ID",
@@ -1603,10 +1626,13 @@ class WebTraffic:
 
         id_number = 1
         index_no = 0
-        for link in link_data[:3]:
+        for link in link_data:
             self.driver.get(link)
+            print("Current product url: ", link)
             time.sleep(5)
             parent_data = self.product_information()
+            if parent_data == None:
+                continue
             variant_data = self.product_attributes()
 
             parent_data["id"] = id_number
@@ -1627,20 +1653,34 @@ class WebTraffic:
                     core_df.loc[index_no] = variant_row
                     index_no += 1
         # print(core_df)
-        core_df.to_csv("office_monster_data.csv", index=False)
+        core_df.to_csv(f"office_monster_data{category_no}.csv", index=False)
 
-    def run(self) -> None:
+    def run_through_links(self, category_no) -> None:
         starttime = datetime.now()
 
-        # self.driver.get(
-        #     "https://www.officemonster.co.uk/lockers--1/wooden-storage-lockers?selected=3062276"
-        # )
+        # Navigate each product detail page and get all data
+        self.product_data_collection(category_no)
+
+        endtime = datetime.now()
+        logging.info(f"Start time: {starttime}")
+        logging.info(f"End time: {endtime}")
+        logging.info(f"Total Duration: {endtime - starttime}")
+        custom_user_agent = self.get_custom_user_agent()
+        self.run_driver(user_agent=custom_user_agent)
+        user_agent = self.driver.execute_script("return navigator.userAgent;")
+        logging.info(user_agent)
+        time.sleep(10)
+
+    def run_through_categories(self, category_no) -> None:
+        starttime = datetime.now()
+
+        self.driver.get(
+            "https://www.officemonster.co.uk/lockers--1/wooden-storage-lockers?selected=3062276"
+        )
         time.sleep(5)
         link_data = []
-        # Navigate each product detail page and get all data
-        self.product_data_collection()
         # For collecting product detail page link
-        # self.navigate_categories(link_data)
+        self.navigate_categories(category_no, link_data)
         endtime = datetime.now()
         logging.info(f"Start time: {starttime}")
         logging.info(f"End time: {endtime}")
@@ -1652,9 +1692,14 @@ class WebTraffic:
         time.sleep(10)
 
 
-def run_scraper():
+def run_categories_scraper(category_no):
     web_traffic = WebTraffic()
-    web_traffic.run()
+    web_traffic.run_through_categories(category_no)
+
+
+def run_csv_scraper(category_no):
+    web_traffic = WebTraffic()
+    web_traffic.run_through_links(category_no)
 
 
 def is_internet_connected():
@@ -1667,6 +1712,79 @@ def is_internet_connected():
     return False
 
 
+def categories_scraper_threads():
+    t0 = threading.Thread(target=run_categories_scraper, args=(0,))
+    t1 = threading.Thread(target=run_categories_scraper, args=(1,))
+    t2 = threading.Thread(target=run_categories_scraper, args=(2,))
+    t3 = threading.Thread(target=run_categories_scraper, args=(3,))
+    # t4 = threading.Thread(target=run_categories_scraper, args=(4,))
+    t5 = threading.Thread(target=run_categories_scraper, args=(5,))
+    t6 = threading.Thread(target=run_categories_scraper, args=(6,))
+    # t7 = threading.Thread(target=run_categories_scraper, args=(7,))
+    # t8 = threading.Thread(target=run_categories_scraper, args=(8,))
+    # t9 = threading.Thread(target=run_categories_scraper, args=(9,))
+
+    t0.start()
+    t1.start()
+    t2.start()
+    t3.start()
+    # t4.start()
+    t5.start()
+    t6.start()
+    # t7.start()
+    # t8.start()
+    # t9.start()
+
+    t0.join()
+    t1.join()
+    t2.join()
+    t3.join()
+    # t4.join()
+    t5.join()
+    t6.join()
+    # t7.join()
+    # t8.join()
+    # t9.join()
+
+
+def csv_scraper_threads():
+    t0 = threading.Thread(target=run_csv_scraper, args=(0,))
+    t1 = threading.Thread(target=run_csv_scraper, args=(1,))
+    t2 = threading.Thread(target=run_csv_scraper, args=(2,))
+    t3 = threading.Thread(target=run_csv_scraper, args=(3,))
+    t4 = threading.Thread(target=run_csv_scraper, args=(4,))
+    t5 = threading.Thread(target=run_csv_scraper, args=(5,))
+    t6 = threading.Thread(target=run_csv_scraper, args=(6,))
+    t7 = threading.Thread(target=run_csv_scraper, args=(7,))
+    t8 = threading.Thread(target=run_csv_scraper, args=(8,))
+    t9 = threading.Thread(target=run_csv_scraper, args=(9,))
+
+    t0.start()
+    t1.start()
+    t2.start()
+    t3.start()
+    t4.start()
+    t5.start()
+    t6.start()
+    t7.start()
+    t8.start()
+    t9.start()
+
+    t0.join()
+    t1.join()
+    t2.join()
+    t3.join()
+    t4.join()
+    t5.join()
+    t6.join()
+    t7.join()
+    t8.join()
+    t9.join()
+
+
 if __name__ == "__main__":
     scraper_logger = ScraperLogger()
-    run_scraper()
+    # run_categories_scraper(1)
+    # run_csv_scraper(1)
+
+    categories_scraper_threads()
