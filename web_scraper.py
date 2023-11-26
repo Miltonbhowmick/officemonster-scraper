@@ -1100,7 +1100,10 @@ class WebTraffic:
             )
             price_element = filter_container.find_element(By.CLASS_NAME, "price ")
             regular_price_value = float(
-                price_element.text.strip().replace("\n", "").split("£")[1]
+                price_element.text.strip()
+                .replace("\n", "")
+                .split("£")[1]
+                .replace(",", "")
             )
 
             vat_price_element = filter_container.find_element(
@@ -1487,7 +1490,7 @@ class WebTraffic:
             else:
                 print("This category has sub menu")
             self.write_json_file(
-                f"office_monster_product_links{category_no}", link_data
+                f"office_monster_product_links_{category_no}", link_data
             )
         else:
             print("Main navbar of categories is not found!")
@@ -1653,7 +1656,7 @@ class WebTraffic:
                     core_df.loc[index_no] = variant_row
                     index_no += 1
         # print(core_df)
-        core_df.to_csv(f"office_monster_data{category_no}.csv", index=False)
+        core_df.to_csv(f"office_monster_data_{category_no}.csv", index=False)
 
     def run_through_links(self, category_no) -> None:
         starttime = datetime.now()
