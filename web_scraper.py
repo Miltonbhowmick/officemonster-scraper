@@ -948,7 +948,7 @@ class WebTraffic:
 
     def get_product_image(self):
         self.mouseover_product_image()
-        time.sleep(3)
+        time.sleep(1)
         if self.wait_till_locator(By.CLASS_NAME, "magnify"):
             print("Product image is found!")
             product_image_element = self.driver.find_element(
@@ -958,7 +958,7 @@ class WebTraffic:
             print("Product image src: ", image_src)
             self.driver.switch_to.new_window(WindowTypes.TAB)
             self.driver.get(image_src)
-            time.sleep(3)
+            time.sleep(1)
 
             image_element = self.driver.find_element(By.XPATH, "/html/body/img")
             image_binary = image_element.screenshot_as_png
@@ -969,24 +969,7 @@ class WebTraffic:
         else:
             print("Product image is not found!")
 
-    def product_variation_collection(self):
-        total_color_elements = len(self.get_all_color_elements())
-        total_frame_elements = len(self.get_all_frame_color_elements())
-
-        for element_idx in range(1, total_color_elements + 1):
-            self.driver.implicitly_wait(10)
-            self.single_color_element_operation(element_no=element_idx)
-            time.sleep(3)
-            for frame_idx in range(1, total_frame_elements + 1):
-                self.single_frame_element_operation(element_no=frame_idx)
-                time.sleep(3)
-                self.get_product_image()
-                time.sleep(1)
-                self.driver.close()
-                self.driver.switch_to.window(self.driver.window_handles[-1])
-                time.sleep(1)
-
-    def navigate_single_variant(self, attribute_obj, element_no):
+    def navigate_single_variant(self, attribute_obj, element_no) -> bool:
         if self.wait_till_locator(By.CLASS_NAME, "product-options"):
             print("Product options box is found for navigating signle variant!")
             product_options_element = self.driver.find_element(
@@ -1014,18 +997,23 @@ class WebTraffic:
                         option_elements = select_element.find_elements(
                             By.TAG_NAME, "option"
                         )
+                        if attribute_obj["attribute_length"] != len(option_elements):
+                            return False
                         option_elements[element_no].click()
-                        return
+                        return True
                     if attribute_obj["attribute_type"] == "button":
                         print("Its a button")
                         self.driver.implicitly_wait(10)
                         button_elements = attribute_values_box.find_elements(
                             By.CLASS_NAME, "option-group-swatch"
                         )
+                        if attribute_obj["attribute_length"] != len(button_elements):
+                            return False
                         button_elements[element_no].click()
-                        return
+                        return True
         else:
             print("Product options box is not found for navigating signle variant!")
+            return False
 
     def get_product_summary(self):
         if self.wait_till_locator(By.CLASS_NAME, "product-summary "):
@@ -1099,12 +1087,16 @@ class WebTraffic:
                 By.CLASS_NAME, "filter-container"
             )
             price_element = filter_container.find_element(By.CLASS_NAME, "price ")
-            regular_price_value = float(
-                price_element.text.strip()
-                .replace("\n", "")
-                .split("£")[1]
-                .replace(",", "")
-            )
+            try:
+                regular_price_value = float(
+                    price_element.text.strip()
+                    .replace("\n", "")
+                    .replace(",", "")
+                    .split("£")[1]
+                )
+            except:
+                regular_price_value = 0
+                print("This product has no regular price!")
 
             vat_price_element = filter_container.find_element(
                 By.CLASS_NAME, "has-vat-price"
@@ -1231,7 +1223,7 @@ class WebTraffic:
                     # Note: implicitly wait is used to recover the 'select' frame finding problem
                     # Because 'select' tag is inside the frame of web and selenium does not find
                     # all 'option' until click on select and make option list visible
-                    time.sleep(3)
+                    time.sleep(1)
                     all_options = select_element.find_elements(By.TAG_NAME, "option")
                     total_options = len(all_options) - 1
                     attribute_values = []
@@ -1260,7 +1252,6 @@ class WebTraffic:
                         label_element = button.find_element(
                             By.CLASS_NAME, "label-radio"
                         )
-                        # print("------", label_element.get_attribute("innerHTML"))
                         attribute_values.append(label_element.text)
                     obj["attribute_values"] = attribute_values
                     obj["attribute_length"] = total_buttons
@@ -1282,11 +1273,15 @@ class WebTraffic:
                             f"Go for attribute: {data[idx]['attribute_name']} and go for element no.: {value}"
                         )
                         self.driver.refresh()
-                        time.sleep(5)
-                        self.navigate_single_variant(
+                        time.sleep(2)
+                        success = self.navigate_single_variant(
                             attribute_obj=data[idx], element_no=value
                         )
-                        time.sleep(2)
+                        time.sleep(1)
+                        if success == False:
+                            self.driver.back()
+                            time.sleep(2)
+                            continue
                         comb_options.append(
                             {
                                 "name": data[idx]["attribute_name"],
@@ -1547,6 +1542,7 @@ class WebTraffic:
             "Images": self.get_list_comma_separate_format(data["image_list"]),
             "Parent": "",
         }
+
         if variant_data:
             attribute_list = variant_data["options"]
             ln = len(attribute_list)
@@ -1557,8 +1553,11 @@ class WebTraffic:
                 parent_row[
                     f"Attribute {i+1} value(s)"
                 ] = self.get_list_comma_separate_format(
-                    attribute_list[i]["attribute_values"]
+                    attribute_list[i].get("attribute_values", [])
                 )
+        else:
+            parent_row["Regular price"] = data["vat_price"]
+            parent_row["Type"] = data["simple"]
 
         return parent_row
 
@@ -1632,12 +1631,14 @@ class WebTraffic:
         for link in link_data:
             self.driver.get(link)
             print("Current product url: ", link)
-            time.sleep(5)
+            time.sleep(1)
             parent_data = self.product_information()
             if parent_data == None:
+                print("There are no parent data")
                 continue
             variant_data = self.product_attributes()
-
+            if variant_data == None:
+                print("There are no variant data")
             parent_data["id"] = id_number
             id_number += 1
             parent_row = self.get_parent_row_csv_format(
@@ -1655,8 +1656,8 @@ class WebTraffic:
                     id_number += 1
                     core_df.loc[index_no] = variant_row
                     index_no += 1
-        # print(core_df)
-        core_df.to_csv(f"office_monster_data_{category_no}.csv", index=False)
+            # print(core_df)
+            core_df.to_csv(f"office_monster_data_{category_no}.csv", index=False)
 
     def run_through_links(self, category_no) -> None:
         starttime = datetime.now()
@@ -1755,39 +1756,40 @@ def csv_scraper_threads():
     t1 = threading.Thread(target=run_csv_scraper, args=(1,))
     t2 = threading.Thread(target=run_csv_scraper, args=(2,))
     t3 = threading.Thread(target=run_csv_scraper, args=(3,))
-    t4 = threading.Thread(target=run_csv_scraper, args=(4,))
+    # t4 = threading.Thread(target=run_csv_scraper, args=(4,))
     t5 = threading.Thread(target=run_csv_scraper, args=(5,))
     t6 = threading.Thread(target=run_csv_scraper, args=(6,))
-    t7 = threading.Thread(target=run_csv_scraper, args=(7,))
-    t8 = threading.Thread(target=run_csv_scraper, args=(8,))
-    t9 = threading.Thread(target=run_csv_scraper, args=(9,))
+    # t7 = threading.Thread(target=run_csv_scraper, args=(7,))
+    # t8 = threading.Thread(target=run_csv_scraper, args=(8,))
+    # t9 = threading.Thread(target=run_csv_scraper, args=(9,))
 
     t0.start()
     t1.start()
     t2.start()
     t3.start()
-    t4.start()
+    # t4.start()
     t5.start()
     t6.start()
-    t7.start()
-    t8.start()
-    t9.start()
+    # t7.start()
+    # t8.start()
+    # t9.start()
 
     t0.join()
     t1.join()
     t2.join()
     t3.join()
-    t4.join()
+    # t4.join()
     t5.join()
     t6.join()
-    t7.join()
-    t8.join()
-    t9.join()
+    # t7.join()
+    # t8.join()
+    # t9.join()
 
 
 if __name__ == "__main__":
     scraper_logger = ScraperLogger()
     # run_categories_scraper(1)
-    # run_csv_scraper(1)
+    run_csv_scraper(0)
 
-    categories_scraper_threads()
+    # categories_scraper_threads()
+    # csv_scraper_threads()
