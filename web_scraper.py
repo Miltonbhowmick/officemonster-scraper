@@ -992,14 +992,16 @@ class WebTraffic:
                             By.TAG_NAME, "select"
                         )
                         select_element.click()
-                        self.driver.implicitly_wait(10)
-                        time.sleep(2)
+                        # self.driver.implicitly_wait(10)
+                        time.sleep(1)
                         option_elements = select_element.find_elements(
                             By.TAG_NAME, "option"
                         )
-                        if attribute_obj["attribute_length"] != len(option_elements):
+                        if attribute_obj["attribute_length"] + 1 != len(
+                            option_elements
+                        ):
                             return False
-                        option_elements[element_no].click()
+                        option_elements[element_no + 1].click()
                         return True
                     if attribute_obj["attribute_type"] == "button":
                         print("Its a button")
@@ -1037,12 +1039,12 @@ class WebTraffic:
             else:
                 product_name = ""
 
-            manufacturer = summary_soup.find(
-                "div", {"class": "manufacturer-name"}
-            ).find("span", string=True, recursive=False)
-            if manufacturer:
+            try:
+                manufacturer = summary_soup.find(
+                    "div", {"class": "manufacturer-name"}
+                ).find("span", string=True, recursive=False)
                 manufacturer = manufacturer.text.strip().replace("\n", "")
-            else:
+            except:
                 manufacturer = ""
 
             summary_data = {
@@ -1098,16 +1100,22 @@ class WebTraffic:
                 regular_price_value = 0
                 print("This product has no regular price!")
 
-            vat_price_element = filter_container.find_element(
-                By.CLASS_NAME, "has-vat-price"
-            )
-
-            if vat_price_element == None:
-                vat_price_element = regular_price_value + 20
-            else:
-                vat_price_element = (
-                    vat_price_element.text.strip().replace("\n", "").split("£")[1]
+            try:
+                vat_price_element = filter_container.find_element(
+                    By.CLASS_NAME, "has-vat-price"
                 )
+
+                if vat_price_element == None:
+                    vat_price_element = regular_price_value + 20
+                else:
+                    vat_price_element = (
+                        vat_price_element.text.strip()
+                        .replace("\n", "")
+                        .replace(",", "")
+                        .split("£")[1]
+                    )
+            except:
+                vat_price_element = regular_price_value
 
             return {"price": regular_price_value, "vat_price": float(vat_price_element)}
         else:
@@ -1131,6 +1139,30 @@ class WebTraffic:
             print("Single product category link serial is not found!")
             return None
 
+    def get_product_magnify_image_url(self):
+        if self.wait_till_locator(By.CLASS_NAME, "productimagesolo"):
+            print("Product solo image is found")
+            product_image_element = self.driver.find_element(
+                By.CLASS_NAME, "productimagesolo"
+            )
+            image_src = product_image_element.get_attribute("src")
+            return {"image_list": [image_src]}
+        else:
+            print(
+                "Product solo image is not found. Let's check for magnify image by mouseover!"
+            )
+            self.mouseover_product_image()
+            if self.wait_till_locator(By.CLASS_NAME, "magnify"):
+                print("Product maginfy image is found!")
+                product_image_element = self.driver.find_element(
+                    By.CLASS_NAME, "magnify"
+                ).find_element(By.TAG_NAME, "img")
+                image_src = product_image_element.get_attribute("src")
+                return {"image_list": [image_src]}
+            else:
+                print("Product maginfy image is not found!")
+                return None
+
     def get_product_all_image_url(self):
         if self.wait_till_locator(By.CLASS_NAME, "productimage_container"):
             print("Single product images box is found!")
@@ -1146,7 +1178,7 @@ class WebTraffic:
                 image_link_list = []
                 for element in image_elements:
                     image_link_list.append(element["src"])
-                return {"image_list": image_link_list}
+                return {"image_list": image_link_list[0]}
             else:
                 main_image = image_soup.find("div", {"class": "main-image"}).find("img")
                 return {"image_list": [main_image["src"]]}
@@ -1160,7 +1192,8 @@ class WebTraffic:
         product_description = self.get_product_description()
         product_price = self.get_product_price()
         product_category_serial = self.get_product_category_serial()
-        product_all_image_url = self.get_product_all_image_url()
+        # product_all_image_url = self.get_product_all_image_url()
+        product_all_image_url = self.get_product_magnify_image_url()
         if product_summary:
             product_data = {**product_data, **product_summary}
         else:
@@ -1273,11 +1306,10 @@ class WebTraffic:
                             f"Go for attribute: {data[idx]['attribute_name']} and go for element no.: {value}"
                         )
                         self.driver.refresh()
-                        time.sleep(2)
+                        time.sleep(1)
                         success = self.navigate_single_variant(
                             attribute_obj=data[idx], element_no=value
                         )
-                        time.sleep(1)
                         if success == False:
                             self.driver.back()
                             time.sleep(2)
@@ -1288,8 +1320,10 @@ class WebTraffic:
                                 "value": data[idx]["attribute_values"][value],
                             }
                         )
+                    time.sleep(1)
                     product_price = self.get_product_price()
-                    product_all_image_url = self.get_product_all_image_url()
+                    product_all_image_url = self.get_product_magnify_image_url()
+                    print("Variant images: ", product_all_image_url)
                     product_variants.append(
                         {
                             "attributes": comb_options,
@@ -1373,8 +1407,8 @@ class WebTraffic:
                     if link_element:
                         link_list.append(link_element["href"])
                 print("Total Len: ", len(link_list))
-                link_data = link_data + link_list
-                return link_data
+                if link_list:
+                    link_data = link_data + link_list
             elif len(sub_categories_to_product_list) > 0:
                 print(
                     "We have direct subcategories to product list, total:",
@@ -1390,7 +1424,8 @@ class WebTraffic:
                     if link_element:
                         link_list.append(link_element["href"])
                 print("Total Len: ", len(link_list))
-                link_data = link_data + link_list
+                if link_list:
+                    link_data = link_data + link_list
             else:
                 print("Something went wrong. We are not in product list")
 
@@ -1459,6 +1494,19 @@ class WebTraffic:
         else:
             print("Sub categories are not found!")
 
+    def get_sub_menu_links(self, category_element) -> list:
+        category_soup = BeautifulSoup(
+            category_element.get_attribute("innerHTML"), features="html.parser"
+        )
+        all_links_elements = category_soup.find("div", "submenucontainer").find_all("a")
+        link_list = []
+        for element in all_links_elements:
+            try:
+                link_list.append(element["href"])
+            except:
+                print("Element has no href")
+        return link_list
+
     def navigate_categories(self, category_no, link_data):
         if self.wait_till_locator(By.CLASS_NAME, "catalog-block"):
             print("Main navbar of categories is found!")
@@ -1482,11 +1530,24 @@ class WebTraffic:
                 self.driver.close()
                 time.sleep(1)
                 self.driver.switch_to.window(self.driver.window_handles[-1])
+                self.write_json_file(
+                    f"office_monster_product_links_{category_no}", link_data
+                )
             else:
                 print("This category has sub menu")
-            self.write_json_file(
-                f"office_monster_product_links_{category_no}", link_data
-            )
+                category_submenu_links = self.get_sub_menu_links(category)
+                for link in category_submenu_links:
+                    time.sleep(1)
+                    self.driver.get(link)
+                    time.sleep(2)
+                    sub_cat_link_data = self.navigate_sub_categories(link_data)
+                    if sub_cat_link_data != None:
+                        time.sleep(1)
+                        if link_data:
+                            self.write_json_file(
+                                f"office_monster_product_links_{category_no}", link_data
+                            )
+                        link_data = sub_cat_link_data
         else:
             print("Main navbar of categories is not found!")
 
@@ -1557,7 +1618,7 @@ class WebTraffic:
                 )
         else:
             parent_row["Regular price"] = data["vat_price"]
-            parent_row["Type"] = data["simple"]
+            parent_row["Type"] = "Simple"
 
         return parent_row
 
@@ -1717,38 +1778,38 @@ def is_internet_connected():
 
 
 def categories_scraper_threads():
-    t0 = threading.Thread(target=run_categories_scraper, args=(0,))
-    t1 = threading.Thread(target=run_categories_scraper, args=(1,))
-    t2 = threading.Thread(target=run_categories_scraper, args=(2,))
-    t3 = threading.Thread(target=run_categories_scraper, args=(3,))
+    # t0 = threading.Thread(target=run_categories_scraper, args=(0,))
+    # t1 = threading.Thread(target=run_categories_scraper, args=(1,))
+    # t2 = threading.Thread(target=run_categories_scraper, args=(2,))
+    # t3 = threading.Thread(target=run_categories_scraper, args=(3,))
     # t4 = threading.Thread(target=run_categories_scraper, args=(4,))
-    t5 = threading.Thread(target=run_categories_scraper, args=(5,))
-    t6 = threading.Thread(target=run_categories_scraper, args=(6,))
+    # t5 = threading.Thread(target=run_categories_scraper, args=(5,))
+    # t6 = threading.Thread(target=run_categories_scraper, args=(6,))
     # t7 = threading.Thread(target=run_categories_scraper, args=(7,))
     # t8 = threading.Thread(target=run_categories_scraper, args=(8,))
-    # t9 = threading.Thread(target=run_categories_scraper, args=(9,))
+    t9 = threading.Thread(target=run_categories_scraper, args=(9,))
 
-    t0.start()
-    t1.start()
-    t2.start()
-    t3.start()
+    # t0.start()
+    # t1.start()
+    # t2.start()
+    # t3.start()
     # t4.start()
-    t5.start()
-    t6.start()
+    # t5.start()
+    # t6.start()
     # t7.start()
     # t8.start()
-    # t9.start()
+    t9.start()
 
-    t0.join()
-    t1.join()
-    t2.join()
-    t3.join()
+    # t0.join()
+    # t1.join()
+    # t2.join()
+    # t3.join()
     # t4.join()
-    t5.join()
-    t6.join()
+    # t5.join()
+    # t6.join()
     # t7.join()
     # t8.join()
-    # t9.join()
+    t9.join()
 
 
 def csv_scraper_threads():
@@ -1788,8 +1849,8 @@ def csv_scraper_threads():
 
 if __name__ == "__main__":
     scraper_logger = ScraperLogger()
-    # run_categories_scraper(1)
-    run_csv_scraper(0)
+    # run_categories_scraper(0)
+    run_csv_scraper(8)
 
     # categories_scraper_threads()
     # csv_scraper_threads()
